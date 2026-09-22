@@ -38,7 +38,8 @@ export function parseApkg(
   }
 
   onProgress('Mở cơ sở dữ liệu')
-  let dbBytes = zip[dbEntry]
+  // fzstd trả Uint8Array<ArrayBufferLike>, fflate trả Uint8Array<ArrayBuffer>.
+  let dbBytes: Uint8Array<ArrayBufferLike> = zip[dbEntry]
   if (isZstd(dbBytes)) dbBytes = zstdDecompress(dbBytes)
 
   const db = new SQL.Database(dbBytes)
