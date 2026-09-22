@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    sans-serif;
+}
+
+/* §8: cộng safe-area vào thanh nút, không thì gạt home ăn mất hàng nút. */
+.pb-safe {
+  padding-bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+}
+.pt-safe {
+  padding-top: calc(0.5rem + env(safe-area-inset-top, 0px));
+}
+
+/* Nội dung note từ deck tải về — cho ảnh khỏi tràn. */
+.note-html img {
+  max-width: 100%;
+  height: auto;
+}
+.note-html {
+  word-break: break-word;
+}
