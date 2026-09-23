@@ -158,12 +158,44 @@ note khi không còn thẻ nào trỏ tới** — một note có thể có thẻ
 > — deck id `1431188075243` được giữ nguyên, sau 2 lần nhập vẫn đúng 7065 thẻ. Cái
 > thấy "lặp" chính là thẻ anh em hiện liền nhau. Luôn tái hiện trước khi sửa.
 
+### `676e47f` — Màn browser: tìm, xem, sửa thẻ
+
+Màn cuối còn thiếu trong danh sách §8.
+
+- Tìm kiếm cú pháp Anki: từ khoá AND, `-loại-trừ`, `"cụm trong nháy"`, `deck:`,
+  `tag:`, `is:new/learn/review/due/suspended`.
+- Sửa note (field + tag), tạm dừng thẻ, chuyển deck, xoá note. Giống Anki: danh
+  sách liệt kê **card** còn ô sửa thì sửa **note**.
+- Xem thử hai mặt thẻ ngay trong lúc sửa, dùng chung `CardView` của màn ôn.
+
+> **Vấp — và là lỗi nghiêm trọng nhất tìm ra từ đầu dự án.** Test treo quá 10
+> phút. Đo từng bước thay vì đoán:
+>
+> ```
+>    243ms  runSearch('')
+>  67587ms  runSearch('deck:All')     ← 67 GIÂY
+> ```
+>
+> Thủ phạm là `db.cards.where('deckId').anyOf([id])`. `anyOf` tối ưu cho "vài
+> khoá, mỗi khoá ít hàng"; ở đây một khoá ứng với cả bảng nên nó dò lại index cho
+> từng hàng. Đổi sang `equals(id)`: **103ms**, nhanh gấp 650 lần. `deleteDeck`
+> cũng dính, đã viết lại theo lối quét một lượt.
+>
+> Lỗi này **không sai kết quả**, chỉ chậm — nên test thường không bắt được. Đã
+> thêm hàng rào thời gian cho riêng nó.
+
+> **Vấp phụ**: `fake-indexeddb` xoá 1000 hàng mất **90 giây** (IndexedDB thật thì
+> không). Phần test xoá deck chuyển sang deck nhỏ tự dựng — cái cần kiểm là ngữ
+> nghĩa chứ không phải quy mô. Biết giới hạn của công cụ test cũng quan trọng
+> như biết giới hạn của code.
+
 ---
 
 ## Trạng thái hiện tại
 
-Xong bước 1, 2, 3, 4 của lộ trình §9. **69 kiểm tra đạt** trong `npm run smoke`.
+Xong bước 1, 2, 3, 4 của lộ trình §9, cộng màn browser. **119 kiểm tra đạt**
+trong `npm run smoke`.
 
-Chưa làm: đồng bộ iPhone ↔ iPad (bước 5), browser/tìm kiếm, cài đặt deck, export JSON.
+Chưa làm: đồng bộ iPhone ↔ iPad (bước 5), cài đặt deck, export JSON.
 Gói schema v18 vẫn chưa đọc được `qfmt`/`afmt` — đúng như §6 nói, app báo người dùng
 export lại với *"Support older Anki versions"*.
