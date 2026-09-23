@@ -18,7 +18,7 @@ node scripts/compare-dbs.mjs <file.apkg>     # đếm note trong từng DB của
 
 ## Đã xong
 
-Bước 1, 2, 4 của lộ trình §9.
+Bước 1, 2, 3, 4 của lộ trình §9.
 
 - Dexie theo schema Anki, note ≠ card, `ord` trỏ template.
 - FSRS qua `ts-fsrs`: 4 nút, nhãn khoảng thời gian, phím tắt `1 2 3 4` + `Space`.
