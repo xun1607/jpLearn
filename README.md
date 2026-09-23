@@ -23,13 +23,26 @@ Bước 1, 2, 3, 4 của lộ trình §9.
 - Dexie theo schema Anki, note ≠ card, `ord` trỏ template.
 - FSRS qua `ts-fsrs`: 4 nút, nhãn khoảng thời gian, phím tắt `1 2 3 4` + `Space`.
 - Nhập `.apkg` trong Web Worker, hỗ trợ **cả schema v11 lẫn v18** (xem bên dưới).
+- Template engine Anki + CSS notetype render trong Shadow DOM.
+- Media (ảnh, `[sound:…]`) phục vụ từ IndexedDB qua service worker.
 - PWA cài được vào Home Screen, `navigator.storage.persist()`.
+
+### Template engine
+
+`src/lib/template/render.ts` — pure, test bằng Node. Hỗ trợ `{{Field}}`,
+`{{FrontSide}}`, `{{#Field}}`/`{{^Field}}` lồng nhau, `{{cloze:…}}` theo `ord`,
+`{{hint:…}}`, `{{type:…}}` có chấm điểm, `{{furigana:…}}`, cộng `text`/`kana`/`kanji`.
+Bộ lọc lạ (`tts`) trả rỗng thay vì làm vỡ thẻ.
+
+**`card.ord` chọn template.** Một note sinh nhiều thẻ qua nhiều template — bộ
+all-in-one-kanji có "Recognition" hỏi `{{Kanji}}` và "Recall" hỏi `{{English}}`.
+Bỏ qua `ord` là cả hai thẻ trông y hệt nhau.
 
 ## Chưa làm
 
-Bước 3 (template engine `{{Field}}`, CSS notetype, Shadow DOM, media qua service
-worker) và bước 5 (đồng bộ). Hiện thẻ hiển thị thô: field đầu là mặt trước, các
-field còn lại là mặt sau, mỗi field kèm nhãn tên.
+Bước 5 (đồng bộ iPhone ↔ iPad), browser/tìm kiếm, cài đặt deck, export JSON.
+Gói schema v18 không đọc được `qfmt`/`afmt` nên vẫn hiện dạng thô — đúng như §6
+nói, app báo người dùng export lại với *"Support older Anki versions"*.
 
 ## Ghi chú về `.apkg`
 
