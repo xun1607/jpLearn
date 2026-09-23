@@ -9,6 +9,11 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // injectManifest chứ không generateSW: cần code riêng trong sw để phục vụ
+      // /media/* từ IndexedDB, workbox runtimeCaching không làm được việc đó.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['apple-touch-icon.png'],
       manifest: {
         name: 'Thẻ — học từ vựng',
@@ -27,7 +32,7 @@ export default defineConfig({
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         // .wasm phải nằm trong danh sách, không thì mở offline là import chết.
         globPatterns: ['**/*.{js,css,html,png,svg,wasm}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,

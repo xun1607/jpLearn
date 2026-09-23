@@ -74,8 +74,11 @@ const {
   formatInterval,
   Rating,
   State,
-  renderFront,
-  renderBack,
+  renderCard,
+  rewriteMedia,
+  renderTemplate,
+  furigana,
+  sanitizeCardHtml,
 } = app
 
 // ---------------------------------------------------------------- 1. thẻ gõ tay
@@ -137,7 +140,96 @@ check('60s -> "1 phút"', () => assert.equal(formatInterval(60_000), '1 phút'))
 check('6 ngày', () => assert.equal(formatInterval(6 * 86_400_000), '6 ngày'))
 check('sang tháng', () => assert.equal(formatInterval(45 * 86_400_000), '1,5 tháng'))
 
-// ---------------------------------------------------------------- 3. import .apkg
+// ---------------------------------------------------------------- 3. template engine
+
+console.log('\n[3] Template engine')
+const tplBase = {
+  fields: { Kanji: '一', English: 'one', Onyomi: 'イチ', Nanori: '', Text: 'Thủ đô là {{c1::Hà Nội}}, có {{c2::Hồ Gươm}}' },
+  tags: ['n5'],
+  deckName: 'Nhật::N5',
+  notetypeName: 'Japanese Kanji',
+  cardName: 'Recognition',
+  ord: 0,
+  side: 'front',
+}
+const tpl = (src, over = {}) => renderTemplate(src, { ...tplBase, ...over })
+
+check('{{Field}}', () => assert.equal(tpl('<b>{{Kanji}}</b>'), '<b>一</b>'))
+check('field không tồn tại -> rỗng', () => assert.equal(tpl('[{{Mơ Hồ}}]'), '[]'))
+check('{{FrontSide}}', () =>
+  assert.equal(tpl('{{FrontSide}}<hr>{{English}}', { frontSide: '一' }), '一<hr>one'),
+)
+check('{{#Field}} hiện khi có nội dung', () =>
+  assert.equal(tpl('{{#Onyomi}}on: {{Onyomi}}{{/Onyomi}}'), 'on: イチ'),
+)
+check('{{#Field}} ẩn khi rỗng', () =>
+  assert.equal(tpl('{{#Nanori}}nanori{{/Nanori}}'), ''),
+)
+check('{{^Field}} hiện khi rỗng', () =>
+  assert.equal(tpl('{{^Nanori}}chưa có{{/Nanori}}'), 'chưa có'),
+)
+check('section lồng nhau', () =>
+  assert.equal(tpl('{{#Kanji}}A{{#Onyomi}}B{{/Onyomi}}C{{/Kanji}}'), 'ABC'),
+)
+check('{{text:Field}} bỏ thẻ HTML', () =>
+  assert.equal(tpl('{{text:Kanji}}', { fields: { ...tplBase.fields, Kanji: '<b>一</b>' } }), '一'),
+)
+check('{{Deck}} / {{Subdeck}} / {{Tags}} / {{Card}}', () =>
+  assert.equal(tpl('{{Deck}}|{{Subdeck}}|{{Tags}}|{{Card}}'), 'Nhật::N5|N5|n5|Recognition'),
+)
+check('furigana 漢字[かんじ]', () =>
+  assert.equal(furigana('漢字[かんじ]'), '<ruby>漢字<rt>かんじ</rt></ruby>'),
+)
+check('cloze mặt trước che c1', () => {
+  const out = tpl('{{cloze:Text}}', { ord: 0, side: 'front' })
+  assert.ok(out.includes('[...]'), out)
+  assert.ok(out.includes('Hồ Gươm'), 'cloze khác phải hiện bình thường')
+  assert.ok(!out.includes('Hà Nội'), 'c1 phải bị che')
+})
+check('cloze mặt sau lộ c1', () => {
+  const out = tpl('{{cloze:Text}}', { ord: 0, side: 'back' })
+  assert.ok(out.includes('Hà Nội'), out)
+})
+check('cloze ord 1 che c2 chứ không che c1', () => {
+  const out = tpl('{{cloze:Text}}', { ord: 1, side: 'front' })
+  assert.ok(out.includes('Hà Nội') && !out.includes('Hồ Gươm'), out)
+})
+check('{{type:Field}} mặt trước ra ô nhập', () =>
+  assert.ok(tpl('{{type:English}}', { side: 'front' }).includes('<input')),
+)
+check('{{type:Field}} mặt sau chấm đúng', () => {
+  const out = tpl('{{type:English}}', { side: 'back', typedAnswer: 'one' })
+  assert.ok(out.includes('typeans-ok'), out)
+})
+check('{{type:Field}} mặt sau chấm sai', () => {
+  const out = tpl('{{type:English}}', { side: 'back', typedAnswer: 'two' })
+  assert.ok(out.includes('typeans-bad') && out.includes('one'), out)
+})
+check('{{hint:Field}} ẩn nội dung', () => {
+  const out = tpl('{{hint:Onyomi}}')
+  assert.ok(out.includes('hint-link') && out.includes('display:none'), out)
+})
+check('bộ lọc lạ không làm vỡ thẻ', () => assert.equal(tpl('{{tts ja_JP:Kanji}}'), ''))
+check('thẻ không đóng không nuốt nội dung', () =>
+  assert.ok(tpl('{{#Kanji}}còn đây').includes('còn đây')),
+)
+
+console.log('\n[3b] Đường dẫn media')
+check('<img src="neko.jpg"> -> /media/neko.jpg', () =>
+  assert.ok(rewriteMedia('<img src="neko.jpg">').includes('src="/media/neko.jpg"')),
+)
+check('không đụng URL tuyệt đối', () =>
+  assert.ok(rewriteMedia('<img src="https://x.com/a.png">').includes('https://x.com/a.png')),
+)
+check('[sound:a.mp3] -> thẻ <audio>', () => {
+  const out = rewriteMedia('xin chào [sound:a.mp3]')
+  assert.ok(out.includes('<audio') && out.includes('/media/a.mp3'), out)
+})
+check('tên file có dấu cách được mã hoá', () =>
+  assert.ok(rewriteMedia('<img src="con meo.jpg">').includes('con%20meo.jpg')),
+)
+
+// ---------------------------------------------------------------- 4. import .apkg
 
 const file = process.argv[2]
 if (!file) {
@@ -169,30 +261,76 @@ if (!file) {
   const nonNew = await db.cards.where('deckId').equals(target.id).filter((c) => c.state !== State.New).count()
   check('không sót dữ liệu lịch SM-2', () => assert.equal(nonNew, 0))
 
-  // render thô
+  // Render thật qua template của bộ thẻ, theo từng ord.
   const sampleCard = (await db.cards.where('deckId').equals(target.id).limit(1).toArray())[0]
   const sampleNote = await db.notes.get(sampleCard.noteId)
   const notetype = await db.notetypes.get(sampleNote.notetypeId)
-  const front = renderFront(sampleNote)
-  const back = renderBack(sampleNote, notetype)
-  check('mặt trước không rỗng', () => assert.ok(front.trim().length > 0, JSON.stringify(front)))
-  check('mặt sau không rỗng', () => assert.ok(back.trim().length > 0))
-  check('mặt sau có nhãn tên field', () => assert.ok(back.includes('uppercase')))
+  const rendered = renderCard(sampleNote, notetype, sampleCard, target.name)
+  check('mặt trước không rỗng', () =>
+    assert.ok(rendered.front.trim().length > 0, JSON.stringify(rendered.front)),
+  )
+  check('mặt sau không rỗng', () => assert.ok(rendered.back.trim().length > 0))
+
+  if (notetype.templates.length > 1 && notetype.templates[1].qfmt.trim() !== '') {
+    // Đây chính là lỗi đã gặp: bỏ qua ord thì hai thẻ của cùng note giống hệt nhau.
+    const a = renderCard(sampleNote, notetype, { ord: 0 }, target.name)
+    const b = renderCard(sampleNote, notetype, { ord: 1 }, target.name)
+    check('ord khác nhau -> mặt trước khác nhau', () =>
+      assert.notEqual(a.front, b.front, `ord 0: ${a.front.slice(0, 80)}`),
+    )
+    console.log(`    ord 0 hỏi: ${a.front.replace(/<[^>]*>/g, '').trim().slice(0, 40)}`)
+    console.log(`    ord 1 hỏi: ${b.front.replace(/<[^>]*>/g, '').trim().slice(0, 40)}`)
+  }
+
+  if (rendered.templated) {
+    check('dùng template của bộ thẻ, không phải dạng thô', () => assert.ok(rendered.templated))
+    check('CSS của notetype được lấy theo', () => assert.ok(rendered.css.length > 0))
+    check('mặt sau chứa lại mặt trước ({{FrontSide}})', () =>
+      assert.ok(rendered.back.includes(rendered.front.trim().slice(0, 20))),
+    )
+  } else {
+    console.log('    (notetype không có template — đang dùng dạng thô)')
+  }
+
+  // Media: tên trong HTML thẻ phải khớp tên đã lưu trong IndexedDB, không thì
+  // service worker tra không ra và thẻ câm.
+  if (summary.media > 0) {
+    let checkedMedia = 0
+    let missing = null
+    for (const c of await db.cards.where('deckId').equals(target.id).limit(30).toArray()) {
+      const n = await db.notes.get(c.noteId)
+      const nt = await db.notetypes.get(n.notetypeId)
+      const r = renderCard(n, nt, c, target.name)
+      for (const m of `${r.front}${r.back}`.matchAll(/\/media\/([^"']+)/g)) {
+        const name = decodeURIComponent(m[1])
+        checkedMedia++
+        if (!(await db.media.get(name))) missing = name
+      }
+    }
+    check('thẻ có tham chiếu media', () => assert.ok(checkedMedia > 0))
+    check('mọi file media thẻ gọi đều có trong IndexedDB', () =>
+      assert.equal(missing, null, `thiếu: ${missing}`),
+    )
+    console.log(`    đã đối chiếu ${checkedMedia} tham chiếu media`)
+  }
 
   // §7: HTML trong bộ thẻ tải về là code của người lạ — phải bị lọc.
-  const evil = {
-    fields: [
-      '<img src=x onerror=alert(1)>câu hỏi<script>alert(2)<\/script>',
+  const evil = sanitizeCardHtml(
+    '<img src=x onerror=alert(1)>câu hỏi<script>alert(2)<\/script>' +
       '<a href="javascript:alert(3)">đáp án</a>',
-    ],
-  }
-  const evilFront = renderFront(evil)
-  const evilBack = renderBack(evil, { fields: ['A', 'B'] })
-  check('sanitize: bỏ <script>', () => assert.ok(!/<script/i.test(evilFront)))
-  check('sanitize: bỏ onerror=', () => assert.ok(!/onerror/i.test(evilFront)))
-  check('sanitize: bỏ javascript: href', () => assert.ok(!/javascript:/i.test(evilBack)))
-  check('sanitize: giữ lại nội dung lành', () => assert.ok(evilFront.includes('câu hỏi')))
-  console.log(`    mặt trước mẫu: ${front.replace(/<[^>]*>/g, '').trim().slice(0, 60)}`)
+  )
+  check('sanitize: bỏ <script>', () => assert.ok(!/<script/i.test(evil), evil))
+  check('sanitize: bỏ onerror=', () => assert.ok(!/onerror/i.test(evil), evil))
+  check('sanitize: bỏ javascript: href', () => assert.ok(!/javascript:/i.test(evil), evil))
+  check('sanitize: giữ lại nội dung lành', () => assert.ok(evil.includes('câu hỏi')))
+  check('sanitize: giữ <audio controls> cho thẻ có tiếng', () => {
+    const out = sanitizeCardHtml('<audio controls src="/media/a.mp3"></audio>')
+    assert.ok(out.includes('<audio') && out.includes('controls'), out)
+  })
+  check('sanitize: giữ <ruby> cho furigana', () => {
+    const out = sanitizeCardHtml('<ruby>漢字<rt>かんじ</rt></ruby>')
+    assert.ok(out.includes('<ruby') && out.includes('<rt'), out)
+  })
 
   // nhập lại lần hai không được nhân đôi hay xoá tiến độ
   const cardsBefore = await db.cards.count()

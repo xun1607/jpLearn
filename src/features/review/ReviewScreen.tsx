@@ -3,8 +3,9 @@ import { db } from '../../db'
 import type { CardRow, Note, NoteType } from '../../db/schema'
 import { applyRating, previewIntervals, type Grade } from '../../scheduler'
 import { AnswerBar, ShowAnswerBar } from './AnswerBar'
+import { CardView, isTypingTarget } from './CardView'
 import { buildQueue, DEFAULT_NEW_PER_DAY } from './queue'
-import { renderBack, renderFront } from './renderNote'
+import { renderCard } from './renderCard'
 
 /** Thẻ bấm "Lại" phải quay lại trong cùng phiên, không đợi sang ngày. */
 const RELEARN_WINDOW_MS = 20 * 60 * 1000
@@ -23,6 +24,7 @@ export function ReviewScreen({
   const [queue, setQueue] = useState<CardRow[] | null>(null)
   const [reviewed, setReviewed] = useState(0)
   const [showAnswer, setShowAnswer] = useState(false)
+  const [typedAnswer, setTypedAnswer] = useState('')
   const [note, setNote] = useState<Note | null>(null)
   const [notetype, setNotetype] = useState<NoteType | undefined>(undefined)
 
@@ -55,10 +57,17 @@ export function ReviewScreen({
     }
   }, [card?.id, card?.noteId])
 
+  const rendered = useMemo(
+    () => (note && card ? renderCard(note, notetype, card, deckName, typedAnswer) : null),
+    [note, notetype, card?.id, card?.ord, deckName, typedAnswer],
+  )
+
   const intervals = useMemo(
     () => (card ? previewIntervals(card) : null),
     [card?.id, card?.reps, card?.state],
   )
+
+  const reveal = useCallback(() => setShowAnswer(true), [])
 
   const rate = useCallback(
     async (grade: Grade) => {
@@ -81,6 +90,7 @@ export function ReviewScreen({
 
       setReviewed((n) => n + 1)
       setShowAnswer(false)
+      setTypedAnswer('')
       setQueue((q) => {
         if (!q) return q
         const rest = q.slice(1)
@@ -97,20 +107,22 @@ export function ReviewScreen({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === ' ' || e.key === 'Enter') {
+      const typing = isTypingTarget()
+
+      if (e.key === 'Enter' || (e.key === ' ' && !typing)) {
         e.preventDefault()
         if (showAnswer) void rate(3 as Grade)
-        else setShowAnswer(true)
+        else reveal()
         return
       }
-      if (showAnswer && e.key >= '1' && e.key <= '4') {
+      if (showAnswer && !typing && e.key >= '1' && e.key <= '4') {
         e.preventDefault()
         void rate(Number(e.key) as Grade)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showAnswer, rate])
+  }, [showAnswer, rate, reveal])
 
   if (queue === null) {
     return <Centered>Đang nạp…</Centered>
@@ -125,10 +137,7 @@ export function ReviewScreen({
             <div className="mb-2 text-4xl">🎉</div>
             <div className="mb-1 text-lg font-medium">Xong deck này rồi</div>
             <div className="text-sm text-slate-500">Đã ôn {reviewed} thẻ</div>
-            <button
-              onClick={onExit}
-              className="mt-6 rounded-xl bg-slate-800 px-6 py-3 text-white"
-            >
+            <button onClick={onExit} className="mt-6 rounded-xl bg-slate-800 px-6 py-3 text-white">
               Về danh sách deck
             </button>
           </div>
@@ -138,29 +147,28 @@ export function ReviewScreen({
   }
 
   return (
-    <div className="flex h-full flex-col bg-slate-50">
+    <div className="flex h-full flex-col bg-white">
       <Header deckName={deckName} left={queue.length} reviewed={reviewed} onExit={onExit} />
 
       {/* §8: khu vực thẻ dùng flex-1, KHÔNG dùng 100vh */}
       <div
         className="flex-1 overflow-y-auto px-4 py-6"
-        onClick={() => !showAnswer && setShowAnswer(true)}
+        onClick={() => !showAnswer && reveal()}
       >
         <div className="mx-auto max-w-2xl">
-          {note ? (
+          {rendered ? (
             <>
-              <div
-                className="note-html text-center text-2xl leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: renderFront(note) }}
+              <CardView
+                html={showAnswer ? rendered.back : rendered.front}
+                css={rendered.css}
+                onTyped={setTypedAnswer}
               />
-              {showAnswer && (
-                <>
-                  <hr className="my-6 border-slate-300" />
-                  <div
-                    className="note-html text-lg leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: renderBack(note, notetype) }}
-                  />
-                </>
+              {!rendered.templated && (
+                <p className="mt-6 rounded-lg bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-800">
+                  Bộ thẻ này không kèm template (gói xuất theo schema v18), đang hiện dạng
+                  thô. Xuất lại từ Anki với tuỳ chọn “Support older Anki versions” là thẻ
+                  hiện đúng như trong Anki.
+                </p>
               )}
             </>
           ) : (
@@ -172,7 +180,7 @@ export function ReviewScreen({
       {showAnswer && intervals ? (
         <AnswerBar intervals={intervals} onRate={rate} />
       ) : (
-        <ShowAnswerBar onShow={() => setShowAnswer(true)} />
+        <ShowAnswerBar onShow={reveal} />
       )}
     </div>
   )
