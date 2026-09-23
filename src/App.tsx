@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { seedIfEmpty } from './db'
+import { BrowseScreen } from './features/browse/BrowseScreen'
 import { DeckList, type DeckSummary } from './features/decks/DeckList'
 import { ImportScreen } from './features/import/ImportScreen'
 import { NoteEditor } from './features/notes/NoteEditor'
@@ -10,6 +11,7 @@ type Screen =
   | { name: 'review'; deck: DeckSummary }
   | { name: 'add' }
   | { name: 'import' }
+  | { name: 'browse'; query: string }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'decks' })
@@ -38,12 +40,15 @@ export default function App() {
       return <NoteEditor onExit={back} />
     case 'import':
       return <ImportScreen onExit={back} />
+    case 'browse':
+      return <BrowseScreen initialQuery={screen.query} onExit={back} />
     default:
       return (
         <DeckList
           onOpen={(deck) => setScreen({ name: 'review', deck })}
           onAdd={() => setScreen({ name: 'add' })}
           onImport={() => setScreen({ name: 'import' })}
+          onBrowse={(query) => setScreen({ name: 'browse', query })}
         />
       )
   }

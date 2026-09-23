@@ -27,6 +27,7 @@ Bước 1, 2, 3, 4 của lộ trình §9.
 - Dexie theo schema Anki, note ≠ card, `ord` trỏ template.
 - FSRS qua `ts-fsrs`: 4 nút, nhãn khoảng thời gian, phím tắt `1 2 3 4` + `Space`.
 - Nhập `.apkg` trong Web Worker, hỗ trợ **cả schema v11 lẫn v18** (xem bên dưới).
+- Màn browser: tìm kiếm kiểu Anki, sửa field/tag, tạm dừng, chuyển deck, xoá note.
 - Template engine Anki + CSS notetype render trong Shadow DOM.
 - Media (ảnh, `[sound:…]`) phục vụ từ IndexedDB qua service worker.
 - PWA cài được vào Home Screen, `navigator.storage.persist()`.
@@ -42,9 +43,20 @@ Bộ lọc lạ (`tts`) trả rỗng thay vì làm vỡ thẻ.
 all-in-one-kanji có "Recognition" hỏi `{{Kanji}}` và "Recall" hỏi `{{English}}`.
 Bỏ qua `ord` là cả hai thẻ trông y hệt nhau.
 
+### Tìm kiếm
+
+```
+漢字                    chữ nào cũng phải có (AND)
+-がっこう                loại bỏ
+deck:N5                 tên deck chứa "N5"
+deck:"Nhật Bản::N5"     tên có dấu cách thì bọc nháy
+tag:động-từ              có tag này
+is:new is:due is:suspended is:learn is:review
+```
+
 ## Chưa làm
 
-Bước 5 (đồng bộ iPhone ↔ iPad), browser/tìm kiếm, cài đặt deck, export JSON.
+Bước 5 (đồng bộ iPhone ↔ iPad), cài đặt deck, export JSON.
 Gói schema v18 không đọc được `qfmt`/`afmt` nên vẫn hiện dạng thô — đúng như §6
 nói, app báo người dùng export lại với _"Support older Anki versions"_.
 

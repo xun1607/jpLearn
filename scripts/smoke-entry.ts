@@ -8,3 +8,6 @@ export { applyRating, previewIntervals, formatInterval, Rating, State } from '..
 export { renderCard, rewriteMedia } from '../src/features/review/renderCard'
 export { renderTemplate, furigana, stripHtml, isBlank } from '../src/lib/template/render'
 export { sanitizeCardHtml } from '../src/features/review/sanitize'
+export { parseQuery, matchesNote, matchesCard, needsNoteScan } from '../src/features/browse/search'
+export { runSearch } from '../src/features/browse/runSearch'
+export { updateNote, setSuspended, moveCard, deleteNote } from '../src/db/editNotes'

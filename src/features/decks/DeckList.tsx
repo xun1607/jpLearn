@@ -15,10 +15,12 @@ export function DeckList({
   onOpen,
   onAdd,
   onImport,
+  onBrowse,
 }: {
   onOpen: (deck: DeckSummary) => void
   onAdd: () => void
   onImport: () => void
+  onBrowse: (query: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState<DeckSummary | null>(null)
@@ -46,36 +48,48 @@ export function DeckList({
 
   return (
     <div className="flex h-full flex-col bg-slate-50">
-      <div className="pt-safe flex items-center gap-2 border-b border-slate-200 bg-white px-4 pb-3">
-        <h1 className="flex-1 text-xl font-semibold">Bộ thẻ</h1>
-        {editing ? (
-          <button
-            onClick={() => setEditing(false)}
-            className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-white"
-          >
-            Xong
-          </button>
-        ) : (
-          <>
+      <div className="pt-safe border-b border-slate-200 bg-white px-4 pb-3">
+        <div className="flex items-center gap-2">
+          <h1 className="flex-1 text-xl font-semibold">Bộ thẻ</h1>
+          {editing ? (
             <button
-              onClick={() => setEditing(true)}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-            >
-              Sửa
-            </button>
-            <button
-              onClick={onImport}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-            >
-              Nhập
-            </button>
-            <button
-              onClick={onAdd}
+              onClick={() => setEditing(false)}
               className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-white"
             >
-              + Thẻ
+              Xong
             </button>
-          </>
+          ) : (
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              >
+                Sửa
+              </button>
+              <button
+                onClick={onImport}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              >
+                Nhập
+              </button>
+              <button
+                onClick={onAdd}
+                className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-white"
+              >
+                + Thẻ
+              </button>
+            </>
+          )}
+        </div>
+
+        {!editing && (
+          <button
+            onClick={() => onBrowse('')}
+            className="mt-2.5 flex w-full items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-left text-sm text-slate-400 active:bg-slate-50"
+          >
+            <span aria-hidden>⌕</span>
+            <span>Tìm và sửa thẻ…</span>
+          </button>
         )}
       </div>
 

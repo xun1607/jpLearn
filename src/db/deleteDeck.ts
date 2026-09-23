@@ -1,4 +1,5 @@
 import { db } from './index'
+import type { CardRow } from './schema'
 
 export interface DeleteSummary {
   decks: string[]
@@ -7,7 +8,7 @@ export interface DeleteSummary {
   revlog: number
 }
 
-const CHUNK = 500
+const CHUNK = 1000
 
 /**
  * Xoá deck cùng toàn bộ thẻ, revlog, và những note không còn thẻ nào.
@@ -18,6 +19,9 @@ const CHUNK = 500
  * Note chỉ bị xoá khi KHÔNG còn thẻ nào trỏ tới — một note có thể sinh nhiều
  * thẻ nằm ở nhiều deck khác nhau, xoá theo deck mà đụng luôn note là mất dữ
  * liệu ở deck còn lại.
+ *
+ * Mọi thứ ở đây đi theo lối "quét một lượt" thay vì gọi `anyOf` với hàng nghìn
+ * khoá: đo trên bộ 7065 thẻ thì `anyOf` chậm hơn hàng trăm lần.
  */
 export async function deleteDeck(deckId: number): Promise<DeleteSummary> {
   const root = await db.decks.get(deckId)
@@ -25,54 +29,46 @@ export async function deleteDeck(deckId: number): Promise<DeleteSummary> {
 
   const all = await db.decks.toArray()
   const targets = all.filter((d) => d.id === deckId || d.name.startsWith(`${root.name}::`))
-  const targetIds = targets.map((d) => d.id)
+  const targetIds = new Set(targets.map((d) => d.id))
 
-  const cards = await db.cards.where('deckId').anyOf(targetIds).toArray()
-  const cardIds = cards.map((c) => c.id)
-  const noteIds = [...new Set(cards.map((c) => c.noteId))]
+  const doomed: CardRow[] = []
+  for (const id of targetIds) {
+    doomed.push(...(await db.cards.where('deckId').equals(id).toArray()))
+  }
+  const doomedCardIds = new Set(doomed.map((c) => c.id))
+  const touchedNotes = new Set(doomed.map((c) => c.noteId))
 
   let revlogDeleted = 0
+  let notesDeleted = 0
 
   await db.transaction('rw', db.cards, db.notes, db.revlog, db.decks, async () => {
-    for (const slice of chunks(cardIds)) {
-      revlogDeleted += await db.revlog.where('cardId').anyOf(slice).delete()
-      await db.cards.bulkDelete(slice)
+    const ids = [...doomedCardIds]
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      await db.cards.bulkDelete(ids.slice(i, i + CHUNK))
     }
 
-    // Sau khi thẻ đã biến mất, note nào không còn thẻ nào thì mới xoá.
-    const orphans: number[] = []
-    for (const slice of chunks(noteIds)) {
-      const survivors = await db.cards.where('noteId').anyOf(slice).toArray()
-      const stillUsed = new Set(survivors.map((c) => c.noteId))
-      orphans.push(...slice.filter((id) => !stillUsed.has(id)))
-    }
-    for (const slice of chunks(orphans)) {
-      await db.notes.bulkDelete(slice)
+    // Một lượt quét revlog thay vì nhiều lần anyOf theo lô.
+    revlogDeleted = await db.revlog.filter((r) => doomedCardIds.has(r.cardId)).delete()
+
+    // Một lượt quét những thẻ CÒN LẠI để biết note nào vẫn được dùng.
+    const stillUsed = new Set<number>()
+    await db.cards.each((card) => {
+      if (touchedNotes.has(card.noteId)) stillUsed.add(card.noteId)
+    })
+
+    const orphans = [...touchedNotes].filter((id) => !stillUsed.has(id))
+    notesDeleted = orphans.length
+    for (let i = 0; i < orphans.length; i += CHUNK) {
+      await db.notes.bulkDelete(orphans.slice(i, i + CHUNK))
     }
 
-    await db.decks.bulkDelete(targetIds)
-
-    return orphans.length
+    await db.decks.bulkDelete([...targetIds])
   })
-
-  const remainingNotes = await countRemaining(noteIds)
 
   return {
     decks: targets.map((d) => d.name),
-    cards: cardIds.length,
-    notes: noteIds.length - remainingNotes,
+    cards: doomedCardIds.size,
+    notes: notesDeleted,
     revlog: revlogDeleted,
   }
-}
-
-async function countRemaining(noteIds: number[]): Promise<number> {
-  let n = 0
-  for (const slice of chunks(noteIds)) {
-    n += await db.notes.where('id').anyOf(slice).count()
-  }
-  return n
-}
-
-function* chunks<T>(items: T[]): Generator<T[]> {
-  for (let i = 0; i < items.length; i += CHUNK) yield items.slice(i, i + CHUNK)
 }

@@ -15,6 +15,7 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { JSDOM } from 'jsdom'
+import { runBrowseTests } from './browse-tests.mjs'
 
 // DOMPurify chỉ tự kích hoạt khi có `window`; cấp một DOM giả trƯỚC khi nạp
 // code app, không thì sanitize thành hàm rỗng và test mất ý nghĩa.
@@ -400,32 +401,100 @@ if (!file) {
     )
   })
 
-  // ------------------------------------------------------------ xoá deck
-  console.log('\n[6] Xoá bộ thẻ')
-  const beforeCards = await db.cards.count()
-  const beforeNotes = await db.notes.count()
-  const beforeRevlog = await db.revlog.count()
-  const deckCardCount = await db.cards.where('deckId').equals(target.id).count()
+  // ------------------------------------------------------------ browser
+  // Chạy TRƯỚC khi xoá deck, không thì chẳng còn thẻ nào để tìm.
+  await runBrowseTests(app, check, target, State)
 
-  const deleted = await deleteDeck(target.id)
-  console.log(
-    `    đã xoá ${deleted.cards} thẻ, ${deleted.notes} note, ${deleted.revlog} dòng revlog`,
+  // ------------------------------------------------------- hàng rào tốc độ
+  //
+  // `where(...).anyOf([...])` của Dexie từng làm runSearch('deck:…') mất 67
+  // GIÂY trên bộ 7065 thẻ, trong khi `equals()` chỉ mất 0,2 giây. Lỗi kiểu đó
+  // không sai kết quả nên test thường không bắt được — phải canh bằng đồng hồ.
+  console.log('\n[6] Hàng rào tốc độ truy vấn')
+  const t0 = Date.now()
+  const deckSearch = await app.runSearch(`deck:"${target.name}"`)
+  const elapsed = Date.now() - t0
+  console.log(`    lọc theo deck trên ${deckSearch.total} thẻ: ${elapsed}ms`)
+  check('lọc theo deck không dùng truy vấn bậc hai', () =>
+    assert.ok(
+      elapsed < 15_000,
+      `mất ${elapsed}ms — nhiều khả năng đã quay lại dùng anyOf thay vì equals`,
+    ),
   )
-  const deckGone = (await db.decks.get(target.id)) === undefined
-  check('hàng deck bị xoá', () => assert.ok(deckGone))
-  check('số thẻ xoá khớp số thẻ trong deck', () => assert.equal(deleted.cards, deckCardCount))
-  const afterCards = await db.cards.count()
-  check('thẻ của deck đã sạch', () => assert.equal(afterCards, beforeCards - deckCardCount))
-  const afterNotes = await db.notes.count()
-  check('note mồ côi bị dọn theo', () => assert.ok(afterNotes < beforeNotes))
-  const leftoverCards = await db.cards.where('deckId').equals(target.id).count()
-  check('không sót thẻ nào trỏ về deck đã xoá', () => assert.equal(leftoverCards, 0))
-  const afterRevlog = await db.revlog.count()
-  check('revlog của thẻ đã xoá cũng đi theo', () => assert.ok(afterRevlog <= beforeRevlog))
 
-  // Deck gõ tay phải còn nguyên — xoá deck này không được đụng deck kia.
-  const manualLeft = await db.cards.where('deckId').equals(DEFAULT_DECK_ID).count()
-  check('deck khác không bị ảnh hưởng', () => assert.equal(manualLeft, 2))
+  // ------------------------------------------------------------ xoá deck
+  //
+  // Làm trên deck nhỏ tự dựng, không làm trên bộ 7065 thẻ: fake-indexeddb xoá
+  // 1000 hàng mất 90 giây (IndexedDB thật thì không), test sẽ thành vô dụng.
+  // Cái cần kiểm ở đây là ngữ nghĩa, không phải quy mô.
+  console.log('\n[7] Xoá bộ thẻ — ngữ nghĩa')
+
+  const parentId = 90001
+  const childId = 90002
+  await db.decks.bulkPut([
+    { id: parentId, name: 'Thử xoá' },
+    { id: childId, name: 'Thử xoá::Con' },
+  ])
+  await addNote(parentId, BASIC_NOTETYPE_ID, ['xoá-1', 'a'])
+  await addNote(childId, BASIC_NOTETYPE_ID, ['xoá-2', 'b'])
+
+  // Một note có thẻ ở CẢ deck sắp xoá lẫn deck khác — note này phải sống sót.
+  await addNote(parentId, BASIC_NOTETYPE_ID, ['dùng-chung', 'c'])
+  const sharedNoteId = (
+    await db.notes.filter((n) => n.fields[0] === 'dùng-chung').toArray()
+  )[0].id
+  await db.cards.put({
+    ...(await db.cards.where('noteId').equals(sharedNoteId).first()),
+    id: 90010,
+    deckId: DEFAULT_DECK_ID,
+    ord: 0,
+  })
+
+  // Một dòng revlog để kiểm tra nó bị dọn theo.
+  const victimCard = await db.cards.where('deckId').equals(childId).first()
+  await db.revlog.add({
+    cardId: victimCard.id,
+    rating: 3,
+    state: State.New,
+    elapsedDays: 0,
+    scheduledDays: 1,
+    reviewedAt: new Date(),
+  })
+
+  const manualBefore = await db.cards.where('deckId').equals(DEFAULT_DECK_ID).count()
+  const del = await deleteDeck(parentId)
+  console.log(`    đã xoá ${del.cards} thẻ, ${del.notes} note, ${del.revlog} dòng revlog`)
+
+  const parentGone = (await db.decks.get(parentId)) === undefined
+  const childGone = (await db.decks.get(childId)) === undefined
+  check('hàng deck bị xoá', () => assert.ok(parentGone))
+  check('deck con bị xoá theo', () => assert.ok(childGone, 'không thì deck con thành mồ côi'))
+  check('tên cả cha lẫn con nằm trong kết quả', () =>
+    assert.deepEqual(del.decks.sort(), ['Thử xoá', 'Thử xoá::Con']),
+  )
+
+  const leftParent = await db.cards.where('deckId').equals(parentId).count()
+  const leftChild = await db.cards.where('deckId').equals(childId).count()
+  check('không sót thẻ nào trỏ về deck đã xoá', () => assert.equal(leftParent + leftChild, 0))
+
+  const revlogLeft = await db.revlog.where('cardId').equals(victimCard.id).count()
+  check('revlog của thẻ đã xoá cũng đi theo', () => assert.equal(revlogLeft, 0))
+
+  const gone1 = await db.notes.filter((n) => n.fields[0] === 'xoá-1').count()
+  check('note không còn thẻ nào thì bị dọn', () => assert.equal(gone1, 0))
+
+  const sharedAlive = await db.notes.get(sharedNoteId)
+  check('note còn thẻ ở deck khác thì SỐNG SÓT', () =>
+    assert.ok(sharedAlive, 'xoá theo deck mà đụng luôn note là mất dữ liệu ở deck kia'),
+  )
+  const sharedCardsLeft = await db.cards.where('noteId').equals(sharedNoteId).toArray()
+  check('thẻ của note dùng chung vẫn còn ở deck kia', () => {
+    assert.equal(sharedCardsLeft.length, 1)
+    assert.equal(sharedCardsLeft[0].deckId, DEFAULT_DECK_ID)
+  })
+
+  const manualAfter = await db.cards.where('deckId').equals(DEFAULT_DECK_ID).count()
+  check('deck khác không bị ảnh hưởng', () => assert.equal(manualAfter, manualBefore))
 }
 
 console.log(`\n${passed} kiểm tra đạt${process.exitCode ? ' — CÓ LỖI Ở TRÊN' : ''}`)
