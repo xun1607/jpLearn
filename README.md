@@ -1,6 +1,10 @@
 # Thẻ — flashcard PWA
 
+Clone Anki cho web di động. Repo: `jpLearn`.
+
 Xem [CLAUDE.md](CLAUDE.md) cho bối cảnh và các quyết định thiết kế.
+Tài liệu chi tiết trong [docs/](docs/) — [nhật ký cột mốc](docs/MOC-MOC.md) và
+[loạt bài giải thích cách nghĩ](docs/README.md).
 
 ## Lệnh
 
