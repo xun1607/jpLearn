@@ -1,4 +1,5 @@
 # Thẻ — flashcard PWA
+WEB app: cloneanki.vercel.app
 
 Xem [CLAUDE.md](CLAUDE.md) cho bối cảnh và các quyết định thiết kế.
 
