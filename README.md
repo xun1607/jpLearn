@@ -42,7 +42,7 @@ Bỏ qua `ord` là cả hai thẻ trông y hệt nhau.
 
 Bước 5 (đồng bộ iPhone ↔ iPad), browser/tìm kiếm, cài đặt deck, export JSON.
 Gói schema v18 không đọc được `qfmt`/`afmt` nên vẫn hiện dạng thô — đúng như §6
-nói, app báo người dùng export lại với *"Support older Anki versions"*.
+nói, app báo người dùng export lại với _"Support older Anki versions"_.
 
 ## Ghi chú về `.apkg`
 
@@ -56,7 +56,7 @@ nói, app báo người dùng export lại với *"Support older Anki versions"*
 | `qfmt` / `afmt` | JSON trong `col`       | protobuf — **chưa đọc được** |
 
 Khi làm bước 3 sẽ phải quay lại: gặp v18 thì báo người dùng export lại với tuỳ
-chọn *"Support older Anki versions"*, đúng như §6 nói.
+chọn _"Support older Anki versions"_, đúng như §6 nói.
 
 Ba cái bẫy ở §6 đều gặp thật khi test:
 
