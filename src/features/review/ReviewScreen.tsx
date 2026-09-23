@@ -93,7 +93,9 @@ export function ReviewScreen({
       setTypedAnswer('')
       setQueue((q) => {
         if (!q) return q
-        const rest = q.slice(1)
+        // Chôn thẻ anh em: học xong kanji thì đừng hỏi nghĩa của đúng từ đó
+        // ngay sau — đáp án còn nguyên trong đầu, FSRS sẽ đo nhầm độ nhớ.
+        const rest = q.slice(1).filter((c) => c.noteId !== card.noteId)
         if (updated.due.getTime() - now.getTime() < RELEARN_WINDOW_MS) {
           rest.push(updated)
         }

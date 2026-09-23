@@ -79,6 +79,9 @@ const {
   renderTemplate,
   furigana,
   sanitizeCardHtml,
+  notesStudiedToday,
+  keepOnePerNote,
+  deleteDeck,
 } = app
 
 // ---------------------------------------------------------------- 1. thẻ gõ tay
@@ -342,6 +345,87 @@ if (!file) {
   // hạn mức thẻ mới mỗi ngày
   const limited = await buildQueue(target.id, 20)
   check('hàng đợi tôn trọng hạn mức 20 thẻ mới/ngày', () => assert.ok(limited.length <= 20))
+
+  // ------------------------------------------------------------ chôn thẻ anh em
+  console.log('\n[5] Chôn thẻ anh em')
+  const noteIdsInQueue = limited.map((c) => c.noteId)
+  check('trong một phiên, mỗi note chỉ ra một thẻ', () =>
+    assert.equal(new Set(noteIdsInQueue).size, noteIdsInQueue.length),
+  )
+
+  // Học một thẻ rồi dựng lại hàng đợi: anh em của nó phải biến mất cả ngày,
+  // không chỉ trong phiên đang mở.
+  const victim = limited[0]
+  const siblings = (await db.cards.where('noteId').equals(victim.noteId).toArray()).filter(
+    (c) => c.id !== victim.id,
+  )
+  if (siblings.length === 0) {
+    console.log('    (note này chỉ có 1 thẻ — bỏ qua phần kiểm tra qua phiên)')
+  } else {
+    const t = new Date()
+    const applied = applyRating(victim, Rating.Good, t)
+    await db.cards.put({ ...victim, ...applied.card })
+    await db.revlog.add({
+      cardId: victim.id,
+      rating: applied.log.rating,
+      state: applied.log.state,
+      elapsedDays: applied.log.elapsed_days,
+      scheduledDays: applied.log.scheduled_days,
+      reviewedAt: t,
+    })
+
+    const buriedNotes = await notesStudiedToday()
+    check('note vừa học bị đánh dấu là đã học hôm nay', () =>
+      assert.ok(buriedNotes.has(victim.noteId)),
+    )
+    const nextQueue = await buildQueue(target.id, 20)
+    check('thẻ anh em không quay lại ở phiên sau trong ngày', () =>
+      assert.ok(
+        !nextQueue.some((c) => c.noteId === victim.noteId),
+        `còn sót ${nextQueue.filter((c) => c.noteId === victim.noteId).length} thẻ`,
+      ),
+    )
+    console.log(`    note ${victim.noteId} có ${siblings.length + 1} thẻ, đã chôn ${siblings.length}`)
+  }
+
+  check('keepOnePerNote giữ thẻ đứng trước', () => {
+    const kept = keepOnePerNote([
+      { id: 1, noteId: 9 },
+      { id: 2, noteId: 9 },
+      { id: 3, noteId: 8 },
+    ])
+    assert.deepEqual(
+      kept.map((c) => c.id),
+      [1, 3],
+    )
+  })
+
+  // ------------------------------------------------------------ xoá deck
+  console.log('\n[6] Xoá bộ thẻ')
+  const beforeCards = await db.cards.count()
+  const beforeNotes = await db.notes.count()
+  const beforeRevlog = await db.revlog.count()
+  const deckCardCount = await db.cards.where('deckId').equals(target.id).count()
+
+  const deleted = await deleteDeck(target.id)
+  console.log(
+    `    đã xoá ${deleted.cards} thẻ, ${deleted.notes} note, ${deleted.revlog} dòng revlog`,
+  )
+  const deckGone = (await db.decks.get(target.id)) === undefined
+  check('hàng deck bị xoá', () => assert.ok(deckGone))
+  check('số thẻ xoá khớp số thẻ trong deck', () => assert.equal(deleted.cards, deckCardCount))
+  const afterCards = await db.cards.count()
+  check('thẻ của deck đã sạch', () => assert.equal(afterCards, beforeCards - deckCardCount))
+  const afterNotes = await db.notes.count()
+  check('note mồ côi bị dọn theo', () => assert.ok(afterNotes < beforeNotes))
+  const leftoverCards = await db.cards.where('deckId').equals(target.id).count()
+  check('không sót thẻ nào trỏ về deck đã xoá', () => assert.equal(leftoverCards, 0))
+  const afterRevlog = await db.revlog.count()
+  check('revlog của thẻ đã xoá cũng đi theo', () => assert.ok(afterRevlog <= beforeRevlog))
+
+  // Deck gõ tay phải còn nguyên — xoá deck này không được đụng deck kia.
+  const manualLeft = await db.cards.where('deckId').equals(DEFAULT_DECK_ID).count()
+  check('deck khác không bị ảnh hưởng', () => assert.equal(manualLeft, 2))
 }
 
 console.log(`\n${passed} kiểm tra đạt${process.exitCode ? ' — CÓ LỖI Ở TRÊN' : ''}`)

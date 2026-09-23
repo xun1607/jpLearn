@@ -11,6 +11,14 @@ function startOfToday(now = new Date()): Date {
   return d
 }
 
+async function cardsStudiedToday(): Promise<CardRow[]> {
+  const logs = await db.revlog.where('reviewedAt').aboveOrEqual(startOfToday()).toArray()
+  const ids = [...new Set(logs.map((l) => l.cardId))]
+  if (ids.length === 0) return []
+  const rows = await db.cards.bulkGet(ids)
+  return rows.filter((r): r is CardRow => r !== undefined)
+}
+
 /**
  * Số thẻ mới đã học hôm nay, suy từ revlog: `state` trong revlog là trạng thái
  * TRƯỚC khi ôn, nên state === New nghĩa là thẻ đó lần đầu ra mắt.
@@ -23,6 +31,17 @@ export async function newIntroducedToday(): Promise<number> {
     if (log.state === State.New) seen.add(log.cardId)
   }
   return seen.size
+}
+
+/**
+ * Note đã học hôm nay — dùng để "chôn" thẻ anh em.
+ *
+ * Một note sinh nhiều thẻ (kanji→nghĩa và nghĩa→kanji). Học thẻ đầu xong mà
+ * thẻ sau hỏi đúng từ đó thì đáp án còn nguyên trong đầu, FSRS đo được độ nhớ
+ * giả chứ không phải độ nhớ thật. Anki gọi việc hoãn này là bury sibling.
+ */
+export async function notesStudiedToday(): Promise<Set<number>> {
+  return new Set((await cardsStudiedToday()).map((c) => c.noteId))
 }
 
 export async function deckCounts(deckId: number): Promise<{ due: number; new: number }> {
@@ -66,32 +85,81 @@ function interleave(due: CardRow[], fresh: CardRow[]): CardRow[] {
   return out
 }
 
+/** Mỗi note chỉ để lại một thẻ trong phiên; thẻ đứng trước được giữ. */
+export function keepOnePerNote(cards: CardRow[], alreadySeen = new Set<number>()): CardRow[] {
+  const seen = new Set(alreadySeen)
+  const out: CardRow[] = []
+  for (const card of cards) {
+    if (seen.has(card.noteId)) continue
+    seen.add(card.noteId)
+    out.push(card)
+  }
+  return out
+}
+
 /**
- * Hàng đợi một phiên ôn: thẻ tới hạn + thẻ mới trong hạn mức ngày.
- * Trả CardRow đầy đủ; note nạp riêng từng thẻ để deck 20k không phải load hết.
+ * Hàng đợi một phiên ôn: thẻ tới hạn + thẻ mới trong hạn mức ngày, đã chôn
+ * thẻ anh em. Trả CardRow đầy đủ; note nạp riêng từng thẻ để deck 20k không
+ * phải load hết.
  */
 export async function buildQueue(
   deckId: number,
   newPerDay: number = DEFAULT_NEW_PER_DAY,
 ): Promise<CardRow[]> {
   const now = new Date()
+  // Note đã học hôm nay chiếm sẵn chỗ -> thẻ anh em của chúng bị bỏ qua.
+  const claimed = await notesStudiedToday()
+
   const dueRaw = await db.cards
     .where('[deckId+due]')
     .between([deckId, Dexie.minKey], [deckId, now], true, true)
     .toArray()
-  const due = dueRaw.filter((c) => c.state !== State.New && !c.suspended)
+  const due = keepOnePerNote(
+    shuffle(dueRaw.filter((c) => c.state !== State.New && !c.suspended)),
+    claimed,
+  )
+  // Thẻ tới hạn giành chỗ trước thẻ mới: ôn cái đã quên quan trọng hơn học mới.
+  for (const card of due) claimed.add(card.noteId)
 
   const remaining = Math.max(0, newPerDay - (await newIntroducedToday()))
-  const fresh =
-    remaining === 0
-      ? []
-      : (
-          await db.cards
-            .where('[deckId+state]')
-            .equals([deckId, State.New])
-            .limit(remaining)
-            .toArray()
-        ).filter((c) => !c.suspended)
+  const fresh = remaining === 0 ? [] : await pickNewCards(deckId, remaining, claimed)
 
-  return interleave(shuffle(due), fresh)
+  return interleave(due, fresh)
+}
+
+const PAGE = 200
+
+/**
+ * Quét thẻ mới theo trang cho tới khi đủ `wanted` note khác nhau.
+ *
+ * Không lấy một phát `limit(wanted)` rồi lọc: notetype nhiều template thì cả
+ * trang có thể là thẻ anh em của vài note, lọc xong còn lại dúm dó và hôm đó
+ * học hụt hẳn hạn mức.
+ */
+async function pickNewCards(
+  deckId: number,
+  wanted: number,
+  claimed: Set<number>,
+): Promise<CardRow[]> {
+  const picked: CardRow[] = []
+  let offset = 0
+
+  while (picked.length < wanted) {
+    const page = await db.cards
+      .where('[deckId+state]')
+      .equals([deckId, State.New])
+      .offset(offset)
+      .limit(PAGE)
+      .toArray()
+    if (page.length === 0) break
+    offset += page.length
+
+    for (const card of page) {
+      if (card.suspended || claimed.has(card.noteId)) continue
+      claimed.add(card.noteId)
+      picked.push(card)
+      if (picked.length >= wanted) break
+    }
+  }
+  return picked
 }
