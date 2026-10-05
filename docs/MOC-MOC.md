@@ -268,6 +268,15 @@ Test 34 kiểm tra. Đã **cố tình phá** hai chỗ để xem test có đỏ 
 > Không dùng magic link: trên iOS, link trong mail mở bằng Safari chứ không vào
 > app đã cài — đăng nhập xong ở Safari còn app vẫn chưa đăng nhập.
 
+### Push + deploy
+
+`git push` lên `jpLearn`, rồi `npx vercel --prod`. Lần đầu Vercel báo
+`Not authorized` dù `vercel whoami` vẫn đúng tài khoản; chạy lại lần hai là qua —
+cùng kiểu trục trặc nhất thời như ngày 1.
+
+Kiểm sau deploy bằng `curl` chứ không tin "Ready": bundle chính có chuỗi giao diện
+mới, `sw.js` precache cả chunk `supabase-*.js`, `.wasm` vẫn trả `application/wasm`.
+
 ---
 
 ## Trạng thái hiện tại
