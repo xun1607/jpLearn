@@ -5,6 +5,8 @@ import { DeckList, type DeckSummary } from './features/decks/DeckList'
 import { ImportScreen } from './features/import/ImportScreen'
 import { NoteEditor } from './features/notes/NoteEditor'
 import { ReviewScreen } from './features/review/ReviewScreen'
+import { SyncScreen } from './features/sync/SyncScreen'
+import { startSyncService } from './sync/service'
 
 type Screen =
   | { name: 'decks' }
@@ -12,6 +14,7 @@ type Screen =
   | { name: 'add' }
   | { name: 'import' }
   | { name: 'browse'; query: string }
+  | { name: 'sync' }
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'decks' })
@@ -22,6 +25,9 @@ export default function App() {
     void navigator.storage?.persist?.()
     void seedIfEmpty().then(() => setReady(true))
   }, [])
+
+  // Đồng bộ chạy nền suốt vòng đời app, không gắn với màn nào.
+  useEffect(() => startSyncService(), [])
 
   if (!ready) return null
 
@@ -42,6 +48,8 @@ export default function App() {
       return <ImportScreen onExit={back} />
     case 'browse':
       return <BrowseScreen initialQuery={screen.query} onExit={back} />
+    case 'sync':
+      return <SyncScreen onExit={back} />
     default:
       return (
         <DeckList
@@ -49,6 +57,7 @@ export default function App() {
           onAdd={() => setScreen({ name: 'add' })}
           onImport={() => setScreen({ name: 'import' })}
           onBrowse={(query) => setScreen({ name: 'browse', query })}
+          onSync={() => setScreen({ name: 'sync' })}
         />
       )
   }

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { db } from '../../db'
 import { deleteDeck } from '../../db/deleteDeck'
 import { deckCounts } from '../review/queue'
+import { SyncBadge } from '../sync/SyncBadge'
 
 export interface DeckSummary {
   id: number
@@ -16,11 +17,13 @@ export function DeckList({
   onAdd,
   onImport,
   onBrowse,
+  onSync,
 }: {
   onOpen: (deck: DeckSummary) => void
   onAdd: () => void
   onImport: () => void
   onBrowse: (query: string) => void
+  onSync: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const [pending, setPending] = useState<DeckSummary | null>(null)
@@ -91,6 +94,7 @@ export function DeckList({
             <span>Tìm và sửa thẻ…</span>
           </button>
         )}
+        {!editing && <SyncBadge onOpen={onSync} />}
       </div>
 
       <div className="flex-1 overflow-y-auto">

@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit",
     "inspect": "node scripts/inspect-apkg.mjs",
     "smoke": "node scripts/smoke-test.mjs",
-    "test:sync": "node scripts/sync-test.mjs"
+    "test:sync": "node scripts/sync-test.mjs",
+    "check:supabase": "node scripts/check-supabase.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "dompurify": "^3.4.15",

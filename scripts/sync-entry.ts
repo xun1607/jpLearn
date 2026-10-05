@@ -4,3 +4,6 @@ export { recordReview, rebuildCards, rebuildReviewedAmong } from '../src/db/revi
 export { importCollection } from '../src/db/importCollection'
 export { replayCard } from '../src/scheduler/replay'
 export { applyRating, createEmptyCard, Rating, State } from '../src/scheduler'
+export { syncOnce, PULL_OVERLAP, PULL_PAGE } from '../src/sync/engine'
+export { dexieStore } from '../src/sync/local'
+export { memoryRemote } from '../src/sync/memoryRemote'

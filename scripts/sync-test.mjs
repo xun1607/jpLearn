@@ -56,6 +56,11 @@ const {
   applyRating,
   createEmptyCard,
   State,
+  syncOnce,
+  dexieStore,
+  memoryRemote,
+  PULL_OVERLAP,
+  PULL_PAGE,
 } = app
 
 /** PRNG có seed: test lặp lại được, lỗi hôm nay thì mai chạy vẫn ra đúng lỗi đó. */
@@ -286,6 +291,139 @@ console.log('\n[4] Revlog tới trước, nhập bộ thẻ sau')
   await check('báo cho người dùng biết đã khôi phục', () =>
     assert.ok(summary.warnings.some((w) => w.includes('khôi phục')), summary.warnings.join(' | ')),
   )
+}
+
+// ------------------------------------------------------------ 5. hai máy
+
+console.log('\n[5] Hai máy, một server')
+
+{
+  const remote = memoryRemote()
+  const A = new FlashcardDB('device-a')
+  const B = new FlashcardDB('device-b')
+  const storeA = dexieStore(A, 'me')
+  const storeB = dexieStore(B, 'me')
+  const sync = (store) => syncOnce(store, remote)
+
+  // Cùng một bộ thẻ trên cả hai máy — như nhập cùng một .apkg.
+  const deck = Array.from({ length: 30 }, (_, i) => baseCard(1000 + i))
+  await A.cards.bulkPut(deck)
+  await B.cards.bulkPut(deck)
+
+  const cardsOf = (dev) => dev.cards.orderBy('id').toArray()
+  const sameCards = async () => assert.deepStrictEqual(await cardsOf(A), await cardsOf(B))
+
+  let clock = T0.getTime()
+  const tick = (ms = 90_000) => new Date((clock += ms))
+
+  // iPhone học 10 thẻ.
+  for (let i = 0; i < 10; i++) await recordReview(1000 + i, 1 + pick(4), tick(), A)
+  const r1 = await sync(storeA)
+  await check('iPhone đẩy 10 lần ôn lên', () => {
+    assert.equal(r1.pushed, 10)
+    assert.equal(remote.rows.length, 10)
+  })
+  await check('iPhone không còn gì chờ đẩy', async () =>
+    assert.equal(await A.revlog.where('synced').equals(0).count(), 0),
+  )
+
+  const r2 = await sync(storeB)
+  await check('iPad kéo về 10 dòng, dựng lại 10 thẻ', () => {
+    assert.equal(r2.pulled, 10)
+    assert.equal(r2.rebuilt, 10)
+  })
+  await check('iPad có ĐÚNG trạng thái thẻ như iPhone', sameCards)
+
+  // iPad học tiếp, có cả thẻ iPhone đã học.
+  for (let i = 5; i < 15; i++) await recordReview(1000 + i, 1 + pick(4), tick(DAY * 2), B)
+  await sync(storeB)
+  await sync(storeA)
+  await check('học tiếp trên iPad -> iPhone thấy', sameCards)
+
+  // Cả hai offline, cùng ôn MỘT thẻ, rồi mới đồng bộ.
+  const before = (await A.cards.get(1020)).reps
+  await recordReview(1020, 3, tick(DAY), A)
+  await recordReview(1020, 1, tick(3_600_000), B)
+  await recordReview(1021, 4, tick(), B)
+  await sync(storeA)
+  await sync(storeB)
+  await sync(storeA)
+  await check('ôn cùng một thẻ lúc offline: hai máy hội tụ', sameCards)
+  await check('không lần ôn nào bị mất khi gộp', async () =>
+    assert.equal((await A.cards.get(1020)).reps, before + 2),
+  )
+  await check('kết quả gộp = phát lại toàn bộ revlog', async () => {
+    const logs = await A.revlog.where('cardId').equals(1020).toArray()
+    assert.deepStrictEqual(await A.cards.get(1020), replayCard(baseCard(1020), logs))
+  })
+
+  const idle = await sync(storeA)
+  await check('đồng bộ lần nữa khi không có gì mới: không đẩy, không kéo', () =>
+    assert.deepEqual(idle, { pushed: 0, pulled: 0, rebuilt: 0 }),
+  )
+
+  // Mất mạng giữa chừng.
+  for (let i = 0; i < 3; i++) await recordReview(1025 + i, 3, tick(), A)
+  const rowsBefore = remote.rows.length
+  remote.failNext = 1
+  await check('mất mạng: sync báo lỗi chứ không nuốt im', () => assert.rejects(sync(storeA)))
+  await check('mất mạng: 3 lần ôn vẫn nằm chờ trên máy', async () =>
+    assert.equal(await A.revlog.where('synced').equals(0).count(), 3),
+  )
+  await sync(storeA)
+  await check('có mạng lại: đẩy đủ 3 dòng', () => assert.equal(remote.rows.length, rowsBefore + 3))
+
+  // Server đã nhận nhưng máy chưa kịp đánh dấu synced (app bị tắt đúng lúc đó).
+  await recordReview(1028, 3, tick(), A)
+  await remote.pushRevlog(await storeA.pendingRevlog(10))
+  const countAfterFirst = remote.rows.length
+  await sync(storeA)
+  await check('đẩy lại dòng server đã có thì không sinh bản trùng', () =>
+    assert.equal(remote.rows.length, countAfterFirst),
+  )
+
+  await sync(storeB)
+  await check('sau mọi sự cố, hai máy vẫn khớp', sameCards)
+
+  // Dòng commit muộn: mang seq nhỏ hơn con trỏ iPad đã đi qua.
+  const cursorB = await storeB.getCursor()
+  remote.insertLate(
+    {
+      uid: 'late-1',
+      cardId: 1029,
+      rating: 3,
+      state: 0,
+      elapsedDays: 0,
+      scheduledDays: 0,
+      reviewedAt: tick(),
+    },
+    cursorB - 5,
+  )
+  await sync(storeB)
+  await check(`dòng commit muộn (seq lùi < ${PULL_OVERLAP}) vẫn được vớt`, async () =>
+    assert.equal((await B.cards.get(1029)).reps, 1),
+  )
+  await check('con trỏ không bị kéo lùi', async () =>
+    assert.ok((await storeB.getCursor()) >= cursorB),
+  )
+  await check('con trỏ tách theo tài khoản', async () =>
+    assert.equal(await dexieStore(B, 'người-khác').getCursor(), 0),
+  )
+
+  // Nhiều hơn một trang kéo về.
+  const bulkCards = Array.from({ length: 300 }, (_, i) => baseCard(5000 + i))
+  await A.cards.bulkPut(bulkCards)
+  await B.cards.bulkPut(bulkCards)
+  const many = PULL_PAGE * 2 + 137
+  for (let i = 0; i < many; i++) await recordReview(5000 + (i % 300), 1 + pick(4), tick(), A)
+  await sync(storeA)
+  await sync(storeA) // A kéo lại dòng commit muộn ở trên
+  const big = await sync(storeB)
+  await check(`kéo ${many} dòng qua nhiều trang`, () => assert.equal(big.pulled, many))
+  await check('nhiều trang: hai máy vẫn khớp', sameCards)
+
+  A.close()
+  B.close()
 }
 
 console.log(`\n${passed} kiểm tra đạt${process.exitCode ? ' — CÓ LỖI Ở TRÊN' : ''}`)
