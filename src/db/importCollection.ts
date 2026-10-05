@@ -1,6 +1,7 @@
 import { createEmptyCard } from 'ts-fsrs'
 import type { ParsedCollection } from '../lib/apkg/types'
 import { db, newId } from './index'
+import { rebuildReviewedAmong } from './review'
 import type { CardRow, Deck, Note, NoteType } from './schema'
 
 export interface ImportSummary {
@@ -119,6 +120,12 @@ export async function importCollection(
       )
       onProgress('Lưu media', Math.min(i + 200, col.media.length), col.media.length)
     }
+  }
+
+  // Đồng bộ có thể đã kéo revlog của bộ này về từ máy khác trước khi nhập.
+  const restored = await rebuildReviewedAmong(newCards.map((c) => c.id))
+  if (restored > 0) {
+    warnings.push(`${restored} thẻ đã có lịch sử ôn từ máy khác — đã khôi phục tiến độ.`)
   }
 
   if (existing.size > 0) {

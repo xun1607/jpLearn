@@ -52,7 +52,15 @@ export interface CardRow extends FsrsCard {
 }
 
 export interface RevlogRow {
+  /** Khoá cục bộ, chỉ có nghĩa trong máy này. */
   id?: number
+  /**
+   * Khoá toàn cục, dùng chung giữa các máy. Đồng bộ dựa vào nó để chống trùng:
+   * cùng một lần ôn đẩy lên hai lần hay kéo về hai lần vẫn chỉ là một dòng.
+   */
+  uid: string
+  /** 1 = đã nằm trên server. Index Dexie không nhận boolean nên dùng số. */
+  synced: 0 | 1
   cardId: number
   rating: number
   state: number

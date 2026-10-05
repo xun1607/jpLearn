@@ -83,6 +83,7 @@ const {
   notesStudiedToday,
   keepOnePerNote,
   deleteDeck,
+  recordReview,
 } = app
 
 // ---------------------------------------------------------------- 1. thẻ gõ tay
@@ -115,16 +116,8 @@ check('Easy xa hơn Again', () => {
 
 // chấm Good rồi kiểm tra ghi nhận
 const now = new Date()
-const { card: nextCard, log } = applyRating(firstCard, Rating.Good, now)
-await db.cards.put({ ...firstCard, ...nextCard })
-await db.revlog.add({
-  cardId: firstCard.id,
-  rating: log.rating,
-  state: log.state,
-  elapsedDays: log.elapsed_days,
-  scheduledDays: log.scheduled_days,
-  reviewedAt: now,
-})
+await recordReview(firstCard.id, Rating.Good, now)
+const log = await db.revlog.where('cardId').equals(firstCard.id).first()
 
 const stored = await db.cards.get(firstCard.id)
 check('thẻ rời trạng thái New', () => assert.notEqual(stored.state, State.New))
@@ -363,17 +356,7 @@ if (!file) {
   if (siblings.length === 0) {
     console.log('    (note này chỉ có 1 thẻ — bỏ qua phần kiểm tra qua phiên)')
   } else {
-    const t = new Date()
-    const applied = applyRating(victim, Rating.Good, t)
-    await db.cards.put({ ...victim, ...applied.card })
-    await db.revlog.add({
-      cardId: victim.id,
-      rating: applied.log.rating,
-      state: applied.log.state,
-      elapsedDays: applied.log.elapsed_days,
-      scheduledDays: applied.log.scheduled_days,
-      reviewedAt: t,
-    })
+    await recordReview(victim.id, Rating.Good)
 
     const buriedNotes = await notesStudiedToday()
     check('note vừa học bị đánh dấu là đã học hôm nay', () =>

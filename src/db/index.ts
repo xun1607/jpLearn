@@ -19,8 +19,9 @@ export class FlashcardDB extends Dexie {
   media!: EntityTable<MediaRow, 'name'>
   config!: EntityTable<ConfigRow, 'key'>
 
-  constructor() {
-    super('flashcards')
+  /** Tên DB chỉ đổi trong test: giả lập hai máy bằng hai DB trong cùng process. */
+  constructor(name = 'flashcards') {
+    super(name)
     this.version(1).stores({
       notetypes: 'id, name',
       decks: 'id, name',
@@ -31,10 +32,28 @@ export class FlashcardDB extends Dexie {
       media: 'name',
       config: 'key',
     })
+
+    // v2 — đồng bộ: revlog cần khoá toàn cục `uid` và cờ `synced`.
+    // Khoá chính `++id` giữ nguyên vì IndexedDB không cho đổi khoá chính.
+    this.version(2)
+      .stores({ revlog: '++id, &uid, cardId, reviewedAt, synced' })
+      .upgrade((tx) =>
+        tx
+          .table('revlog')
+          .toCollection()
+          .modify((row: RevlogRow) => {
+            row.uid = newUid()
+            row.synced = 0
+          }),
+      )
   }
 }
 
 export const db = new FlashcardDB()
+
+export function newUid(): string {
+  return crypto.randomUUID()
+}
 
 /** Anki dùng epoch-ms làm id. Giữ nguyên quy ước, chống đụng bằng bộ đếm. */
 let lastId = 0

@@ -9,7 +9,8 @@
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
     "inspect": "node scripts/inspect-apkg.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "test:sync": "node scripts/sync-test.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.6",

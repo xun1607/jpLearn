@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { db } from '../../db'
 import type { CardRow, Note, NoteType } from '../../db/schema'
-import { applyRating, previewIntervals, type Grade } from '../../scheduler'
+import { recordReview } from '../../db/review'
+import { previewIntervals, type Grade } from '../../scheduler'
 import { AnswerBar, ShowAnswerBar } from './AnswerBar'
 import { CardView, isTypingTarget } from './CardView'
 import { buildQueue, DEFAULT_NEW_PER_DAY } from './queue'
@@ -73,20 +74,7 @@ export function ReviewScreen({
     async (grade: Grade) => {
       if (!card) return
       const now = new Date()
-      const { card: next, log } = applyRating(card, grade, now)
-      const updated: CardRow = { ...card, ...next }
-
-      await db.transaction('rw', db.cards, db.revlog, async () => {
-        await db.cards.put(updated)
-        await db.revlog.add({
-          cardId: card.id,
-          rating: log.rating,
-          state: log.state,
-          elapsedDays: log.elapsed_days,
-          scheduledDays: log.scheduled_days,
-          reviewedAt: now,
-        })
-      })
+      const updated = await recordReview(card.id, grade, now)
 
       setReviewed((n) => n + 1)
       setShowAnswer(false)
