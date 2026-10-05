@@ -1,4 +1,5 @@
 # Thẻ — flashcard PWA
+WEB app: cloneanki.vercel.app
 
 Clone Anki cho web di động. Repo: `jpLearn`.
 
