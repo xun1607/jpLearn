@@ -230,6 +230,8 @@ Làm theo thứ tự "sớm có thứ dùng được", không theo thứ tự ki
   Chỉ dùng cho tuỳ chọn UI vặt.
 - Không làm hệ thống "level" rời rạc thay cho FSRS.
 - Không làm đăng nhập / nhiều người dùng.
+  *Ngoại lệ đã duyệt (2026-10-05)*: đăng nhập **một** tài khoản Supabase để đồng bộ
+  (bước 5), đăng ký đã tắt. Vẫn không làm hệ nhiều người dùng. Xem `docs/MOC-MOC.md`.
 
 ---
 

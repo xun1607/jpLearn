@@ -143,6 +143,9 @@ a453d81  apkg parser (v11 + v18 text-only) + node inspect script
 e1d7f1a  smoke test end-to-end bằng Node + fake-indexeddb
 f9e42ad  template engine + Shadow DOM + CSS notetype + media qua SW
 87290d1  chôn thẻ anh em + xoá bộ thẻ
+676e47f  màn browser — tìm, xem và sửa thẻ
+b15e645  dựng lại thẻ từ revlog — nền cho đồng bộ
+2906d0f  đồng bộ tiến độ học iPhone ↔ iPad qua Supabase
 ```
 
 Mỗi commit là một thứ **chạy được**. Không có commit kiểu "WIP" hay "fix stuff".
@@ -227,6 +230,7 @@ Lặp lại suốt dự án:
 9. Bí thì thu hẹp nguyên nhân, đừng thử bừa.
 10. Dữ liệu người lạ thì luôn có đường lùi vẫn dùng được.
 
-## Hết
+## Đọc tiếp
 
-Quay lại [mục lục](../README.md) · [nhật ký cột mốc](../MOC-MOC.md)
+- [08 — Đồng bộ giữa các máy](08-dong-bo.md)
+- Quay lại [mục lục](../README.md) · [nhật ký cột mốc](../MOC-MOC.md)

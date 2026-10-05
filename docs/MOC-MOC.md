@@ -191,11 +191,96 @@ Màn cuối còn thiếu trong danh sách §8.
 
 ---
 
+## 2026-10-05 · Ngày 3 — đồng bộ iPhone ↔ iPad
+
+Câu hỏi bắt đầu: *"làm sao lưu session học qua các thiết bị mà không bị mất?"*
+
+### Trước khi viết code: database hiện tại có làm được không?
+
+Không. IndexedDB nằm riêng trong từng máy — thậm chí tab Safari và app trên Home
+Screen của **cùng một** iPhone cũng không thấy nhau. Cần một chỗ trên mạng.
+
+§9 đã chốt hướng: revlog append-only lên Supabase, máy nào cũng phát lại. Nhưng
+hướng đó chỉ đúng nếu **phát lại ra đúng y trạng thái cũ**. FSRS có fuzz (rải ngẫu
+nhiên ngày tới hạn) — nếu fuzz dùng `Math.random` thì hai máy phát lại sẽ ra hai
+lịch khác nhau. Mở mã nguồn ts-fsrs ra đọc:
+
+```js
+function DefaultInitSeedStrategy() {
+  const time = this.review_time.getTime();
+  const reps = this.current.reps;
+  const mul = this.current.difficulty * this.current.stability;
+  return `${time}_${reps}_${mul}`;
+}
+```
+
+Seed tất định → phát lại được → **server không cần giữ trạng thái thẻ**, chỉ giữ
+revlog. Đây là phát hiện quyết định cả thiết kế.
+
+**Lệch có duyệt**: §10 ghi "không làm đăng nhập". Hỏi lại và được duyệt: một tài
+khoản duy nhất, tắt đăng ký. Không có đăng nhập thì RLS không biết revlog là của ai.
+
+### `b15e645` — Dựng lại thẻ từ revlog
+
+Bước 1/3, chưa đụng mạng.
+
+- Dexie v2: revlog thêm `uid` (khoá toàn cục) và `synced`. Khoá chính `++id` giữ
+  nguyên vì IndexedDB không cho đổi khoá chính; dòng cũ được cấp uid khi nâng cấp.
+- `replayCard()` pure: xếp theo thời điểm rồi theo uid, để máy nào phát lại cũng
+  cùng thứ tự.
+- `recordReview()` gom việc ghi thẻ + revlog, trước nằm trong `ReviewScreen`.
+- Nhập `.apkg` sau khi đã kéo revlog về: thẻ tự khôi phục tiến độ.
+
+Test: 80 thẻ / 1648 lần ôn ngẫu nhiên, phát lại khớp **từng trường**. Kèm đối chứng
+âm: đổi một lần chấm thì phải lệch — để chắc test không phải hàm rỗng.
+
+### `2906d0f` — Đẩy/kéo revlog qua Supabase
+
+Chia theo SOLID, chủ yếu S và D: engine chỉ biết interface `SyncRemote`; Supabase
+là một bản cài, `memoryRemote` là bản giả cho test. Nhờ vậy test được cảnh **hai
+máy** bằng hai DB Dexie trong cùng một process, không cần mạng.
+
+Ba chi tiết đáng nhớ:
+
+1. **Ghi revlog kéo về và dựng lại thẻ phải chung một transaction.** Tách đôi thì
+   app tắt giữa chừng để lại revlog đã ghi mà thẻ chưa dựng lại — lần sau dòng đó
+   bị coi là trùng nên không ai sửa nữa.
+2. **Con trỏ `seq` có lỗ.** Postgres cấp seq lúc INSERT, không phải lúc COMMIT:
+   iPhone lấy seq 10 nhưng commit chậm, iPad lấy 11 commit trước. Máy kéo đúng lúc
+   đó nhớ con trỏ = 11 và bỏ sót dòng 10 vĩnh viễn. Cách chữa: mỗi lần kéo lùi 200
+   dòng rồi lọc trùng bằng uid.
+3. **Append-only ép ở database**, không chỉ trông vào code: RLS chỉ có policy
+   `select` + `insert`, không có `update`/`delete`.
+
+Test 34 kiểm tra. Đã **cố tình phá** hai chỗ để xem test có đỏ không: đặt
+`PULL_OVERLAP = 0` → bắt được; bỏ bước dựng lại thẻ → 9 kiểm tra đỏ.
+
+> Vấp: script `check-supabase` ban đầu dùng `select(…, { head: true })` để dò
+> bảng, và báo **"bảng revlog có"** khi chưa tạo bảng nào. Request HEAD lên bảng
+> không tồn tại vẫn trả `204` thành công. Đúng loại lỗi của ngày 1 với DOMPurify:
+> công cụ kiểm tra im lặng nói dối. Phát hiện được vì *biết trước* bảng chưa có
+> mà nó lại bảo có.
+
+> Vấp phụ: thêm `supabase-js` làm bundle chính tăng 130 → 189 KB gzip. Tách ra
+> chunk riêng nạp bằng `import()` sau khi app hiện → bundle chính về 133 KB.
+> Service worker vẫn precache chunk đó nên offline không ảnh hưởng.
+
+> Không dùng magic link: trên iOS, link trong mail mở bằng Safari chứ không vào
+> app đã cài — đăng nhập xong ở Safari còn app vẫn chưa đăng nhập.
+
+---
+
 ## Trạng thái hiện tại
 
-Xong bước 1, 2, 3, 4 của lộ trình §9, cộng màn browser. **119 kiểm tra đạt**
-trong `npm run smoke`.
+Xong bước 1, 2, 3, 4 của lộ trình §9, màn browser, và phần chính của bước 5:
+**tiến độ học đồng bộ giữa các máy**. `npm run smoke` 119 kiểm tra đạt,
+`npm run test:sync` 34 kiểm tra đạt.
 
-Chưa làm: đồng bộ iPhone ↔ iPad (bước 5), cài đặt deck, export JSON.
-Gói schema v18 vẫn chưa đọc được `qfmt`/`afmt` — đúng như §6 nói, app báo người dùng
-export lại với *"Support older Anki versions"*.
+Chưa làm:
+
+- Đồng bộ thao tác sửa (thẻ gõ tay, sửa note, tạm dừng, chuyển deck, xoá) — cần
+  một bảng `ops` tương tự revlog.
+- Đồng bộ bộ thẻ `.apkg` + media — hiện nhập tay trên từng máy.
+- Cài đặt deck, export JSON.
+- Gói schema v18 vẫn chưa đọc được `qfmt`/`afmt` — đúng như §6 nói, app báo người
+  dùng export lại với *"Support older Anki versions"*.

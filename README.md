@@ -17,13 +17,15 @@ npm run typecheck
 
 npm run inspect -- "D:/DOWNLOAD/deck.apkg"   # soi gói .apkg, không đụng UI
 npm run smoke   -- "D:/DOWNLOAD/deck.apkg"   # test end-to-end bằng fake-indexeddb
+npm run test:sync                            # test đồng bộ: 2 máy giả lập + server giả
+npm run check:supabase                       # kiểm phía Supabase đã cài đúng chưa
 node scripts/make-icons.mjs                  # sinh lại icon PWA
 node scripts/compare-dbs.mjs <file.apkg>     # đếm note trong từng DB của gói
 ```
 
 ## Đã xong
 
-Bước 1, 2, 3, 4 của lộ trình §9.
+Bước 1, 2, 3, 4 của lộ trình §9, và phần chính của bước 5 (đồng bộ tiến độ học).
 
 - Dexie theo schema Anki, note ≠ card, `ord` trỏ template.
 - FSRS qua `ts-fsrs`: 4 nút, nhãn khoảng thời gian, phím tắt `1 2 3 4` + `Space`.
@@ -32,6 +34,7 @@ Bước 1, 2, 3, 4 của lộ trình §9.
 - Template engine Anki + CSS notetype render trong Shadow DOM.
 - Media (ảnh, `[sound:…]`) phục vụ từ IndexedDB qua service worker.
 - PWA cài được vào Home Screen, `navigator.storage.persist()`.
+- Đồng bộ tiến độ học iPhone ↔ iPad qua Supabase (xem bên dưới).
 
 ### Template engine
 
@@ -55,11 +58,41 @@ tag:động-từ              có tag này
 is:new is:due is:suspended is:learn is:review
 ```
 
+## Đồng bộ
+
+Server chỉ giữ **lịch sử ôn** (revlog, chỉ thêm không sửa). Mỗi máy kéo về rồi
+tự phát lại bằng `ts-fsrs` để tính trạng thái thẻ — làm được vì ts-fsrs tất
+định, kể cả fuzz.
+
+```
+src/sync/remote.ts     interface SyncRemote — engine chỉ biết cái này
+src/sync/engine.ts     syncOnce(): đẩy revlog chờ → kéo phần mới theo seq
+src/sync/local.ts      phía Dexie: ghi revlog kéo về + dựng lại thẻ, một transaction
+src/sync/supabase.ts   bản cài thật; memoryRemote.ts là bản giả cho test
+src/sync/service.ts    khi nào đồng bộ: sau khi chấm (gom 3s), mở/rời app, có mạng, 5 phút
+```
+
+Cài phía Supabase (một lần):
+
+1. SQL Editor → dán [`supabase/schema.sql`](supabase/schema.sql) → Run.
+2. Authentication → Users → Add user → Create new user, tick **Auto Confirm User**.
+3. Authentication → Sign In / Providers → tắt **Allow new users to sign up**.
+4. `npm run check:supabase` phải báo "Phía Supabase đã sẵn sàng".
+
+Rồi trên từng máy: mở **app đã cài ở Home Screen** → dòng ☁ dưới ô tìm kiếm →
+đăng nhập.
+
+Bộ thẻ `.apkg` **không** đồng bộ — nhập trên từng máy. Id thẻ lấy từ Anki nên
+hai máy khớp nhau; nhập sau khi đã đồng bộ thì tiến độ tự khôi phục.
+
 ## Chưa làm
 
-Bước 5 (đồng bộ iPhone ↔ iPad), cài đặt deck, export JSON.
-Gói schema v18 không đọc được `qfmt`/`afmt` nên vẫn hiện dạng thô — đúng như §6
-nói, app báo người dùng export lại với _"Support older Anki versions"_.
+- Đồng bộ thao tác sửa: thẻ gõ tay, sửa note, tạm dừng, chuyển deck, xoá —
+  hiện chỉ nằm trên máy làm thao tác đó.
+- Đồng bộ bộ thẻ `.apkg` + media (Supabase Storage).
+- Cài đặt deck, export JSON.
+- Gói schema v18 không đọc được `qfmt`/`afmt` nên vẫn hiện dạng thô — đúng như
+  §6 nói, app báo người dùng export lại với _"Support older Anki versions"_.
 
 ## Ghi chú về `.apkg`
 
@@ -72,8 +105,8 @@ nói, app báo người dùng export lại với _"Support older Anki versions"_
 | tên field/deck  | JSON trong `col`       | bảng `fields` / `decks`      |
 | `qfmt` / `afmt` | JSON trong `col`       | protobuf — **chưa đọc được** |
 
-Khi làm bước 3 sẽ phải quay lại: gặp v18 thì báo người dùng export lại với tuỳ
-chọn _"Support older Anki versions"_, đúng như §6 nói.
+Bước 3 (template engine) đã làm xong nhưng phần này vẫn vậy: gặp v18 thì hiện
+dạng thô và nhắc người dùng export lại với _"Support older Anki versions"_.
 
 Ba cái bẫy ở §6 đều gặp thật khi test:
 
